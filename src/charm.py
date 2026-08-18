@@ -4,6 +4,8 @@
 
 import json
 import logging
+import re
+from urllib.parse import urlparse
 
 from charmed_kubeflow_chisme.exceptions import GenericCharmRuntimeError
 from charmed_kubeflow_chisme.kubernetes import KubernetesResourceHandler
@@ -41,6 +43,7 @@ EXTERNAL_LINKS_ORDER_CONFIG_NAME = {
     location: f"{location}-link-order" for location in DASHBOARD_LINK_LOCATIONS
 }
 METRICS_PATH = "/prometheus/metrics"  # Source https://github.com/kubeflow/kubeflow/blob/master/components/centraldashboard/app/metrics.ts#L36 # noqa E501
+KUBERNETES_DNS_LABEL = re.compile(r"^(?=.{1,63}$)[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
 
 
 class CheckFailed(Exception):
@@ -184,6 +187,9 @@ class KubeflowDashboardOperator(CharmBase):
                     "startup": "enabled",
                     "environment": {
                         "COLLECT_METRICS": "true",
+                        "PROMETHEUS_URL": self.model.config["prometheus-url"],
+                        "METRICS_DASHBOARD": self.model.config["metrics-dashboard-url"],
+                        "CLUSTER_NAME": self.model.config["cluster-name"],
                         "USERID_HEADER": "kubeflow-userid",
                         "USERID_PREFIX": "",
                         "PROFILES_KFAM_SERVICE_HOST": f"{self.profiles_service}.{self.model.name}",
@@ -215,6 +221,30 @@ class KubeflowDashboardOperator(CharmBase):
     def _check_leader(self):
         if not self.unit.is_leader():
             raise CheckFailed("Waiting for leadership", WaitingStatus)
+
+    def _check_metrics_config(self):
+        """Validate metrics backend configuration before applying it."""
+        prometheus_url = self.model.config["prometheus-url"]
+        dashboard_url = self.model.config["metrics-dashboard-url"]
+        cluster_name = self.model.config["cluster-name"]
+
+        for config_name, value in (
+            ("prometheus-url", prometheus_url),
+            ("metrics-dashboard-url", dashboard_url),
+        ):
+            if value:
+                parsed = urlparse(value)
+                if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                    raise CheckFailed(
+                        f"{config_name} must be a valid HTTP or HTTPS URL", BlockedStatus
+                    )
+
+        if prometheus_url and not cluster_name:
+            raise CheckFailed(
+                "cluster-name is required when prometheus-url is configured", BlockedStatus
+            )
+        if cluster_name and not KUBERNETES_DNS_LABEL.fullmatch(cluster_name):
+            raise CheckFailed("cluster-name must be a valid DNS label", BlockedStatus)
 
     def _update_layer(self) -> None:
         """Updates the Pebble configuration layer if changed."""
@@ -292,6 +322,7 @@ class KubeflowDashboardOperator(CharmBase):
             self._check_container_connection()
             self._check_model_name()
             self._check_leader()
+            self._check_metrics_config()
             interfaces = self._get_interfaces()
             kf_profiles_interface = self._check_kf_profiles(interfaces)
             self._handle_ingress(interfaces)

@@ -143,6 +143,58 @@ class TestCharm:
         )
 
     @patch("charm.KubernetesServicePatch", lambda x, y: None)
+    def test_metrics_environment(self, harness: Harness):
+        harness.update_config(
+            {
+                "prometheus-url": "http://prometheus.example:9090",
+                "metrics-dashboard-url": "https://grafana.example/d/resources",
+                "cluster-name": "pcaas-0",
+            }
+        )
+        harness.begin()
+
+        environment = harness.charm._kubeflow_dashboard_operator_layer.services[
+            CHARM_NAME
+        ].environment
+        assert environment["PROMETHEUS_URL"] == "http://prometheus.example:9090"
+        assert environment["METRICS_DASHBOARD"] == "https://grafana.example/d/resources"
+        assert environment["CLUSTER_NAME"] == "pcaas-0"
+
+    @pytest.mark.parametrize(
+        "config, expected_message",
+        [
+            (
+                {"prometheus-url": "prometheus.example:9090", "cluster-name": "pcaas-0"},
+                "prometheus-url must be a valid HTTP or HTTPS URL",
+            ),
+            (
+                {"prometheus-url": "http://prometheus.example:9090"},
+                "cluster-name is required when prometheus-url is configured",
+            ),
+            (
+                {
+                    "prometheus-url": "http://prometheus.example:9090",
+                    "cluster-name": "PCaaS_0",
+                },
+                "cluster-name must be a valid DNS label",
+            ),
+            (
+                {"metrics-dashboard-url": "grafana.example/resources"},
+                "metrics-dashboard-url must be a valid HTTP or HTTPS URL",
+            ),
+        ],
+    )
+    @patch("charm.KubernetesServicePatch", lambda x, y: None)
+    def test_invalid_metrics_config_blocks_unit(
+        self, harness: Harness, config: dict, expected_message: str
+    ):
+        harness.set_leader(True)
+        harness.update_config(config)
+        harness.begin_with_initial_hooks()
+
+        assert harness.charm.model.unit.status == BlockedStatus(expected_message)
+
+    @patch("charm.KubernetesServicePatch", lambda x, y: None)
     def test_check_kf_profiles_failure(self, harness: Harness):
         harness.set_leader(True)
         harness.begin_with_initial_hooks()

@@ -38,6 +38,18 @@ options:
     type: boolean
     default: true
     description: Whether to enable the registration flow on sign-in
+  prometheus-url:
+    type: string
+    default: ''
+    description: HTTP or HTTPS URL used by the dashboard to query Prometheus
+  metrics-dashboard-url:
+    type: string
+    default: ''
+    description: Optional HTTP or HTTPS link shown alongside resource charts
+  cluster-name:
+    type: string
+    default: ''
+    description: Kubernetes cluster name used to scope Prometheus queries
   menu-link-order:
     type: string
     default: '["Notebooks", "TensorBoards", "Volumes", "Katib Experiments", "Pipelines", "Experiments (KFP)", "Runs", "Recurring Runs", "Artifacts", "Executions"]'
